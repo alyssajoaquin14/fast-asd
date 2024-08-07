@@ -1,3 +1,4 @@
+'''
 import sieve
 
 metadata = sieve.Metadata(
@@ -44,6 +45,7 @@ metadata = sieve.Metadata(
     gpu=sieve.gpu.L4(split=3),
     metadata=metadata
 )
+'''
 class TalkNetASD:
     def __setup__(self):
         from demoTalkNet import setup
@@ -51,7 +53,7 @@ class TalkNetASD:
 
     def __predict__(
         self,
-        video: sieve.File,
+        video: str,
         start_time: float = 0,
         end_time: float = -1,
         return_visualization: bool = False,
@@ -80,15 +82,17 @@ class TalkNetASD:
             return outputs
             
         if return_visualization:
-            out, video_path = main(self.s, self.DET, video.path, start_seconds=start_time, end_seconds=end_time, return_visualization=return_visualization, face_boxes=face_boxes, in_memory_threshold=in_memory_threshold)
-            return sieve.Video(path=video_path)
+            out, video_path = main(self.s, self.DET, video, start_seconds=start_time, end_seconds=end_time, return_visualization=return_visualization, face_boxes=face_boxes, in_memory_threshold=in_memory_threshold)
+            return video_path
         else:
-            out = main(self.s, self.DET, video.path, start_seconds=start_time, end_seconds=end_time, return_visualization=return_visualization, face_boxes=face_boxes, in_memory_threshold=in_memory_threshold)
+            out = main(self.s, self.DET, video, start_seconds=start_time, end_seconds=end_time, return_visualization=return_visualization, face_boxes=face_boxes, in_memory_threshold=in_memory_threshold)
             return transform_out(out)
 
 if __name__ == "__main__":
     TEST_URL = "https://storage.googleapis.com/sieve-prod-us-central1-public-file-upload-bucket/d979a930-f2a5-4e0d-84fe-a9b233985c4e/dba9cbf3-8374-44bc-8d9d-cc9833d3f502-input-file.mp4"
+    test_vid = "test_vid.mp4"
     model = TalkNetASD()
+    model.__setup__()  # Make sure to setup the model
     # change "url" to "path" if you want to test with a local file
-    out = model(sieve.Video(url=TEST_URL), return_visualization=False)
+    out = model.__predict__(test_vid, return_visualization=False)
     print(list(out))

@@ -27,7 +27,7 @@ class L2Norm(nn.Module):
 
 class S3FDNet(nn.Module):
 
-    def __init__(self, device='cuda'):
+    def __init__(self, device='cpu'):
         super(S3FDNet, self).__init__()
         self.device = device
 
