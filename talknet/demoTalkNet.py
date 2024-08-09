@@ -11,12 +11,15 @@ from scenedetect.frame_timecode import FrameTimecode
 from scenedetect.stats_manager import StatsManager
 from scenedetect.detectors import ContentDetector
 
-from model.faceDetector.s3fd import S3FD
-from talkNet import talkNet
+from talknet.model.faceDetector.s3fd import S3FD
+from talknet.talkNet import talkNet
 
 warnings.filterwarnings("ignore")
-
-pretrained_model_path = os.path.expanduser("~/models/pretrain_TalkSet.model")
+device = torch.device('cuda' if not os.getenv('LOCAL_MACHINE') == 'true' and torch.cuda.is_available() else 'cpu')
+if os.getenv('LOCAL_MACHINE') == 'true':
+    pretrained_model_path = os.path.expanduser("~/models/pretrain_TalkSet.model")
+else:
+    pretrained_model_path = "/root/.cache/models/pretrain_TalkSet.model"
 save_path = "save/"
 data_loader_thread = 10
 face_detection_scale = 0.25
@@ -65,7 +68,7 @@ def scene_detect(video_path, save = False, start_frame = 0, end_frame = None):
 			# sys.stderr.write('%s - scenes detected %d\n'%(video_path, len(sceneList)))
 	return sceneList
 
-def initialize_detector(device='cpu'):
+def initialize_detector():
 	# Initialize the face detector
 	DET = S3FD(device=device)
 	return DET
@@ -269,8 +272,8 @@ def evaluate_network(s, files):
 			scores = []
 			with torch.no_grad():
 				for i in range(batchSize):
-					inputA = torch.FloatTensor(audioFeature[i * duration * 100:(i+1) * duration * 100,:]).unsqueeze(0).cpu()
-					inputV = torch.FloatTensor(videoFeature[i * duration * 25: (i+1) * duration * 25,:,:]).unsqueeze(0).cpu()
+					inputA = torch.FloatTensor(audioFeature[i * duration * 100:(i+1) * duration * 100,:]).unsqueeze(0).to(device)
+					inputV = torch.FloatTensor(videoFeature[i * duration * 25: (i+1) * duration * 25,:,:]).unsqueeze(0).to(device)
 					embedA = s.model.forward_audio_frontend(inputA)
 					embedV = s.model.forward_visual_frontend(inputV)	
 					embedA, embedV = s.model.forward_cross_attention(embedA, embedV)

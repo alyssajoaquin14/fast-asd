@@ -6,24 +6,24 @@ from torchvision import transforms
 from .nets import S3FDNet
 from .box_utils import nms_
 
-PATH_WEIGHT = 'model/faceDetector/s3fd/sfd_face.pth'
+script_dir = os.path.dirname(os.path.abspath(__file__))
+PATH_WEIGHT = os.path.join(script_dir, 'sfd_face.pth')
 if os.path.isfile(PATH_WEIGHT) == False:
     cmd = "wget -O %s https://storage.googleapis.com/mango-public-models/sfd_face.pth"%(PATH_WEIGHT)
     subprocess.call(cmd, shell=True, stdout=None)
 img_mean = np.array([104., 117., 123.])[:, np.newaxis, np.newaxis].astype('float32')
-
+device = torch.device('cuda' if not os.getenv('LOCAL_MACHINE') == 'true' and torch.cuda.is_available() else 'cpu')
 
 class S3FD():
 
-    def __init__(self, device='cpu'):
+    def __init__(self, device=device):
 
         tstamp = time.time()
         self.device = device
 
         # print('[S3FD] loading with', self.device)
         self.net = S3FDNet(device=self.device).to(self.device)
-        PATH = os.path.join(os.getcwd(), PATH_WEIGHT)
-        state_dict = torch.load(PATH, map_location=self.device)
+        state_dict = torch.load(PATH_WEIGHT, map_location=self.device)
         self.net.load_state_dict(state_dict)
         self.net.eval()
         # print('[S3FD] finished loading (%.4f sec)' % (time.time() - tstamp))

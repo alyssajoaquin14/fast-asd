@@ -3,7 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 from .box_utils import Detect, PriorBox
+import os
 
+device = torch.device('cuda' if not os.getenv('LOCAL_MACHINE') == 'true' and torch.cuda.is_available() else 'cpu')
 
 class L2Norm(nn.Module):
 
@@ -27,7 +29,7 @@ class L2Norm(nn.Module):
 
 class S3FDNet(nn.Module):
 
-    def __init__(self, device='cpu'):
+    def __init__(self, device=device):
         super(S3FDNet, self).__init__()
         self.device = device
 
