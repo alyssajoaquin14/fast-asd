@@ -1,40 +1,64 @@
-import sieve
 from utils import get_video_dimensions, get_video_length, create_video_segments
 from custom_types import VideoSegment, Frame, Box
 import threading
 import queue
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from talknet.main import TalkNetASD
+from yolov8_model import YOLOv8
 
-SPEAKER_DETECTION_MODEL = "sieve/talknet-asd"
 SPEAKER_DETECTION_IN_MEMORY_THRESHOLD = 3000
-OBJECT_DETECTION_MODEL = "sieve/yolov8"
 
-def push_video_segments_to_object_detection(video_segment, file, frame_interval=600, models="yolov8l, yolov8l-face", processing_fps=2):
-    object_detector = sieve.function.get(OBJECT_DETECTION_MODEL)
+def run_yolov8(yolov8_instance, file, confidence_threshold, start_frame, end_frame, models, fps, max_num_boxes):
+    return yolov8_instance.__predict__(
+        file=file,
+        confidence_threshold=confidence_threshold,
+        models=models,
+        start_frame=start_frame,
+        end_frame=end_frame,
+        fps=fps,
+        max_num_boxes=max_num_boxes
+    )
+
+def run_talknetasd(talknet_instance, file, start_time, end_time, face_boxes):
+    detection_results = talknet_instance.__predict__(
+        video=file,
+        start_time=start_time,
+        end_time=end_time,
+        return_visualization=False,
+        face_boxes=face_boxes,
+        in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD,  # Set in_memory_threshold according to your needs
+    )
+
+    return detection_results
+
+def push_video_segments_to_object_detection(yolov8_instance, video_segment, file, frame_interval=600, models="yolov8l, yolov8l-face", processing_fps=2):
     # push the video segments to object detection for every frame_interval frames
     total_num_frames = video_segment.end_frame if video_segment.end_frame else int(video_segment.end * video_segment.fps())
     start = video_segment.start_frame if video_segment.start_frame else int(video_segment.start * video_segment.fps())
-    sampled_box_outputs = []
-    for i in range(start, total_num_frames, frame_interval):
-        start_frame = i
-        end_frame = min(i + frame_interval - 1, total_num_frames - 1)
-        
-        sample_box_output = object_detector.push(
-            file,
-            confidence_threshold=0.25,
-            start_frame=start_frame,
-            end_frame=end_frame,
-            models=models,
-            fps=processing_fps,
-            max_num_boxes=30,
-        )
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = []
+        for i in range(start, total_num_frames, frame_interval):
+            start_frame = i
+            end_frame = min(i + frame_interval - 1, total_num_frames - 1)
+            
+            future = executor.submit(
+                run_yolov8,
+                yolov8_instance,
+                file,
+                0.25,
+                start_frame,
+                end_frame,
+                models,
+                processing_fps,
+                30  # max_num_boxes
+            )
+            futures.append({
+                "future": future,
+                "start": start_frame,
+                "end": end_frame,
+            })
 
-        sampled_box_outputs.append({
-            "future": sample_box_output,
-            "start": start_frame,
-            "end": end_frame,
-        })
-
-    return sampled_box_outputs
+    return futures
 
 def get_active_speakers(speaker_frames, alpha=0.5, score_threshold=0):
     # smooth the scores of the boxes from the speaker detection model
@@ -59,40 +83,10 @@ def get_active_speakers(speaker_frames, alpha=0.5, score_threshold=0):
 
     return active_speakers
 
-metadata = sieve.Metadata(
-    title="Detect Active Speakers",
-    description="State-of-the-art active speaker detection based on new, efficent face and speaker detection models.",
-    tags=["Video", "Showcase"],
-    code_url="https://github.com/sieve-community/fast-asd",
-    image=sieve.Image(url="https://storage.googleapis.com/sieve-public-data/asd/speaker-icon.webp"),
-    readme=open("README.md", "r").read(),
-)
-
-@sieve.function(
-    name="active_speaker_detection",
-    python_version="3.9",
-    metadata=metadata,
-    python_packages=[
-        "numpy==1.23.5",
-        "filterpy==1.4.5",
-        "opencv-python==4.7.0.72",
-        "scenedetect[opencv]",
-    ],
-    system_packages=[
-        "ffmpeg",
-        "libgl1-mesa-glx",
-        "libglib2.0-0"
-    ],
-    run_commands=[
-        "pip install lap==0.4.0",
-        "pip install sortedcontainers",
-        "pip install supervision",
-        "pip install 'vidgear[core]'",
-        "pip install 'imageio[ffmpeg]'"
-    ],
-)
 def process(
-    file: sieve.File,
+    yolov8_instance, 
+    talknet_instance,
+    file: str,
     speed_boost: bool = False,
     max_num_faces: int = 5,
     return_scene_cuts_only: bool = False,
@@ -114,18 +108,18 @@ def process(
     :param face_size_threshold: A threshold that determines the minimum size of a face to run speaker detection on. Defaults to 0.5. Lower values allow for smaller faces to be used.
     '''
     # handle webm files by converting them to mp4
-    if file.path.endswith(".webm"):
+    if file.endswith(".webm"):
         print("Converting webm file to mp4...")
         import os
         import subprocess
-        new_path = file.path.replace(".webm", ".mp4")
-        subprocess.run(["ffmpeg", "-y", "-i", file.path, "-c", "copy", new_path])
-        file = sieve.File(path=new_path)
+        new_path = file.replace(".webm", ".mp4")
+        subprocess.run(["ffmpeg", "-y", "-i", file, "-c", "copy", new_path])
+        file = new_path
 
-    width, height = get_video_dimensions(file.path)
+    width, height = get_video_dimensions(file)
     original_video_width = width
     original_video_height = height
-    original_video_length = get_video_length(file.path)
+    original_video_length = get_video_length(file)
 
     models = "yolov8l-face" if speed_boost else "yolov8n-face"
     if end_time == -1:
@@ -139,7 +133,7 @@ def process(
         raise ValueError(f"start_time must be less than end_time")
     
     original_video = VideoSegment(
-        path=file.path,
+        path=file,
         start=start_time,
         end=end_time,
     )
@@ -160,7 +154,7 @@ def process(
     # Define a wrapper function to call push_video_segments_to_object_detection and put the result in the Queue
     def object_detection_wrapper(original_video, file, result_queue, frame_interval):
         print("Pushing video to object detection...")
-        result = push_video_segments_to_object_detection(original_video, file, frame_interval=frame_interval, models=models, processing_fps=processing_fps)
+        result = push_video_segments_to_object_detection(yolov8_instance, original_video, file, frame_interval=frame_interval, models=models, processing_fps=processing_fps)
         result_queue.put(result)
         print("Done pushing video to object detection")
     
@@ -249,68 +243,72 @@ def process(
         return out_str
     
     def get_relevant_face_detection_future(i):
-        for j, future in enumerate(object_detection_futures):
-            if "result" not in future and future["future"].done():
-                try:
-                    res = future["future"].result()
-                    object_detection_futures[j]["result"] = res
-                except:
-                    print(f"WARNING: Found failed object detection (frame {future['start']}-{future['end']}), retrying...")
-                    object_detection_futures[j]["future"] = sieve.function.get(OBJECT_DETECTION_MODEL).push(
-                        file,
-                        confidence_threshold=0.25,
-                        start_frame=future["start"],
-                        end_frame=future["end"],
-                        models=models,
-                        fps=processing_fps,
-                        max_num_boxes=30,
-                    )
-                    continue
-        if "result" in object_detection_futures[i]:
-            return object_detection_futures[i]["result"]
-        else:
-            for _ in range(10):  # retry up to 10 times
-                try:
-                    res = object_detection_futures[i]["future"].result()
-                    object_detection_futures[i]["result"] = res
-                    return res
-                except:
-                    print(f"WARNING: Object detection failed, retrying... Attempt {_+1}/10")
-                    if "result" in object_detection_futures[i]:
-                        del object_detection_futures[i]["result"]
-                    object_detection_futures[i]["future"] = sieve.function.get(OBJECT_DETECTION_MODEL).push(
-                        file,
-                        confidence_threshold=0.25,
-                        start_frame=object_detection_futures[i]["start"], # start 10% into the segment to avoid scene boundaries
-                        end_frame=object_detection_futures[i]["end"],
-                        models=models,
-                        # face_detection=False,
-                        # speed_boost=speed_boost,
-                        fps=processing_fps,
-                        # interpolate_frames=True,
-                        max_num_boxes=30,
-                    )
-            raise Exception("Object detection failed 10 times, please try again later.")
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            for j, future in enumerate(object_detection_futures):
+                if "result" not in future and future["future"].done():
+                    try:
+                        res = future["future"].result()
+                        object_detection_futures[j]["result"] = res
+                    except:
+                        print(f"WARNING: Found failed object detection (frame {future['start']}-{future['end']}), retrying...")
+                        object_detection_futures[j]["future"] = executor.submit(
+                            run_yolov8,
+                            yolov8_instance,
+                            file,
+                            0.25,
+                            future["start"],
+                            future["end"],
+                            models,
+                            processing_fps,
+                            30  # max_num_boxes
+                        )
+                        continue
+            if "result" in object_detection_futures[i]:
+                return object_detection_futures[i]["result"]
+            else:
+                for _ in range(10):  # retry up to 10 times
+                    try:
+                        res = object_detection_futures[i]["future"].result()
+                        object_detection_futures[i]["result"] = res
+                        return res
+                    except:
+                        # HERE IS OUR FAILURE POINT
+                        print(f"WARNING: Object detection failed, retrying... Attempt {_+1}/10")
+                        if "result" in object_detection_futures[i]:
+                            del object_detection_futures[i]["result"]
+                        object_detection_futures[i]["future"] = executor.submit(
+                            run_yolov8,
+                            yolov8_instance,
+                            file,
+                            0.25,
+                            object_detection_futures[i]["start"],
+                            object_detection_futures[i]["end"],
+                            models,
+                            processing_fps,
+                            30  # max_num_boxes
+                        )
+                raise Exception("Object detection failed 10 times, please try again later.")
     
     def get_speaker_detection_payload(start, end, fps=30):
         # find all indices that contain the start and end
         def refresh_speakers():
-            for i, future in enumerate(speaker_detection_futures):
-                in_range = (start >= future["start"] and start <= future["end"]) or (end >= future["start"] and end <= future["end"]) or (start <= future["start"] and end >= future["end"])
-                relevant_future_done = object_detection_futures[i]["future"].done()
-                if not future["future"] and (in_range or relevant_future_done):
-                    # this means that we haven't pushed the video to speaker detection yet since face detection is not done
-                    # lets find the relevant face detection future, wait for it to be done, and then push the video to speaker detection
-                    res = list(get_relevant_face_detection_future(i))
-                    face_detection_outputs = convert_face_detection_outputs_to_string(res)
-                    speaker_detection_futures[i]["future"] = sieve.function.get(SPEAKER_DETECTION_MODEL).push(
-                        file,
-                        start_time=future["start"] / fps, # start 10% into the segment to avoid scene boundaries
-                        end_time=future["end"] / fps,
-                        return_visualization=False,
-                        face_boxes=face_detection_outputs,
-                        in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD
-                    )
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                for i, future in enumerate(speaker_detection_futures):
+                    in_range = (start >= future["start"] and start <= future["end"]) or (end >= future["start"] and end <= future["end"]) or (start <= future["start"] and end >= future["end"])
+                    relevant_future_done = object_detection_futures[i]["future"].done()
+                    if not future["future"] and (in_range or relevant_future_done):
+                        # this means that we haven't pushed the video to speaker detection yet since face detection is not done
+                        # lets find the relevant face detection future, wait for it to be done, and then push the video to speaker detection
+                        res = list(get_relevant_face_detection_future(i))
+                        face_detection_outputs = convert_face_detection_outputs_to_string(res)
+                        speaker_detection_futures[i]["future"] = executor.submit(
+                            run_talknetasd,
+                            talknet_instance,
+                            file,
+                            future["start"] / fps,
+                            future["end"] / fps,
+                            face_detection_outputs
+                        )
         refresh_speakers()
         for i, future in enumerate(speaker_detection_futures):
             if (start >= future["start"] and start <= future["end"]) or (end >= future["start"] and end <= future["end"]) or (start <= future["start"] and end >= future["end"]):
@@ -331,14 +329,15 @@ def process(
 
                         res = list(get_relevant_face_detection_future(i))
                         face_detection_outputs = convert_face_detection_outputs_to_string(res)
-                        speaker_detection_futures[i]["future"] = sieve.function.get(SPEAKER_DETECTION_MODEL).push(
-                            file,
-                            start_time=future["start"] / fps, # start 10% into the segment to avoid scene boundaries
-                            end_time=future["end"] / fps,
-                            return_visualization=False,
-                            face_boxes=face_detection_outputs,
-                            in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD
-                        )
+                        with ThreadPoolExecutor(max_workers=1) as executor:
+                            speaker_detection_futures[i]["future"] = executor.submit(
+                                run_talknetasd,
+                                talknet_instance,
+                                file,
+                                future["start"] / fps,
+                                future["end"] / fps,
+                                face_detection_outputs
+                            )
 
                 if "result" not in speaker_detection_futures[i]:
                     raise Exception("Speaker detection failed 10 times, please try again later.")
@@ -348,74 +347,78 @@ def process(
                         yield frame
 
     def refresh_futures():
-        for i, future in enumerate(object_detection_futures):
-            if "result" in future and speaker_detection_futures[i]["future"] is None:
-                res = list(get_relevant_face_detection_future(i))
-                face_detection_outputs = convert_face_detection_outputs_to_string(res)
-                speaker_detection_futures[i]["future"] = sieve.function.get(SPEAKER_DETECTION_MODEL).push(
-                    file,
-                    start_time=future["start"] / fps, # start 10% into the segment to avoid scene boundaries
-                    end_time=future["end"] / fps,
-                    return_visualization=False,
-                    face_boxes=face_detection_outputs,
-                    in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            for i, future in enumerate(object_detection_futures):
+                if "result" in future and speaker_detection_futures[i]["future"] is None:
+                    res = list(get_relevant_face_detection_future(i))
+                    face_detection_outputs = convert_face_detection_outputs_to_string(res)
+                    speaker_detection_futures[i]["future"] = executor.submit(
+                        run_talknetasd,
+                        talknet_instance,
+                        file,
+                        future["start"] / fps,
+                        future["end"] / fps,
+                        face_detection_outputs
                 )
-            # print("bro",len(speaker_detection_futures), len(object_detection_futures))
-            if speaker_detection_futures[i]["future"] and "result" not in speaker_detection_futures[i] and speaker_detection_futures[i]["future"].done():
-                try:
-                    res = speaker_detection_futures[i]["future"].result()
-                    speaker_detection_futures[i]["result"] = res
-                except:
-                    print(f"WARNING: Found failed speaker detection (frame {future['start']}-{future['end']}), retrying...")
-                    res = list(get_relevant_face_detection_future(i))
-                    face_detection_outputs = convert_face_detection_outputs_to_string(res)
-                    speaker_detection_futures[i]["future"] = sieve.function.get(SPEAKER_DETECTION_MODEL).push(
-                        file,
-                        start_time=future["start"] / fps, # start 10% into the segment to avoid scene boundaries
-                        end_time=future["end"] / fps,
-                        return_visualization=False,
-                        face_boxes=face_detection_outputs,
-                        in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD
-                    )
-                    continue
-        
-        for i, future in enumerate(object_detection_futures):
-            if "result" not in future and future["future"].done():
-                try:
-                    res = future["future"].result()
-                    object_detection_futures[i]["result"] = res
-                except:
-                    print(f"WARNING: Found failed object detection (frame {future['start']}-{future['end']}), retrying...")
-                    object_detection_futures[i]["future"] = sieve.function.get(OBJECT_DETECTION_MODEL).push(
-                        file,
-                        confidence_threshold=0.25,
-                        start_frame=future["start"], # start 10% into the segment to avoid scene boundaries
-                        end_frame=future["end"],
-                        models="yolov8n, yolov8n-face" if speed_boost else "yolov8l, yolov8l-face",
-                        fps=processing_fps,
-                        max_num_boxes=30,
-                    )
-                    continue
-        
-        # loop over futures to see if any have errored, if so, recreate the future
-        for i, future in enumerate(speaker_detection_futures):
-            if "result" not in future and future["future"] and future["future"].done():
-                try:
-                    res = future["future"].result()
-                    speaker_detection_futures[i]["result"] = res
-                except:
-                    print(f"WARNING: Found failed speaker detection (frame {future['start']}-{future['end']}), retrying...")
-                    res = list(get_relevant_face_detection_future(i))
-                    face_detection_outputs = convert_face_detection_outputs_to_string(res)
-                    speaker_detection_futures[i]["future"] = sieve.function.get(SPEAKER_DETECTION_MODEL).push(
-                        file,
-                        start_time=future["start"] / fps,
-                        end_time=future["end"] / fps,
-                        return_visualization=False,
-                        face_boxes=face_detection_outputs,
-                        in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD
-                    )
-                    continue
+            
+                # print("bro",len(speaker_detection_futures), len(object_detection_futures))
+                if speaker_detection_futures[i]["future"] and "result" not in speaker_detection_futures[i] and speaker_detection_futures[i]["future"].done():
+                    try:
+                        res = speaker_detection_futures[i]["future"].result()
+                        speaker_detection_futures[i]["result"] = res
+                    except:
+                        print(f"WARNING: Found failed speaker detection (frame {future['start']}-{future['end']}), retrying...")
+                        res = list(get_relevant_face_detection_future(i))
+                        face_detection_outputs = convert_face_detection_outputs_to_string(res)
+                        speaker_detection_futures[i]["future"] = executor.submit(
+                            run_talknetasd,
+                            talknet_instance,
+                            file,
+                            future["start"] / fps,
+                            future["end"] / fps,
+                            face_detection_outputs
+                        )
+                        continue
+            
+            for i, future in enumerate(object_detection_futures):
+                if "result" not in future and future["future"].done():
+                    try:
+                        res = future["future"].result()
+                        object_detection_futures[i]["result"] = res
+                    except:
+                        print(f"WARNING: Found failed object detection (frame {future['start']}-{future['end']}), retrying...")
+                        object_detection_futures[i]["future"] = executor.submit(
+                            run_yolov8,
+                            yolov8_instance,
+                            file,
+                            0.25,
+                            future["start"],
+                            future["end"],
+                            "yolov8n, yolov8n-face" if speed_boost else "yolov8l, yolov8l-face",
+                            processing_fps,
+                            30  # max_num_boxes
+                        )
+                        continue
+            
+            # loop over futures to see if any have errored, if so, recreate the future
+            for i, future in enumerate(speaker_detection_futures):
+                if "result" not in future and future["future"] and future["future"].done():
+                    try:
+                        res = future["future"].result()
+                        speaker_detection_futures[i]["result"] = res
+                    except:
+                        print(f"WARNING: Found failed speaker detection (frame {future['start']}-{future['end']}), retrying...")
+                        res = list(get_relevant_face_detection_future(i))
+                        face_detection_outputs = convert_face_detection_outputs_to_string(res)
+                        speaker_detection_futures[i]["future"] = executor.submit(
+                            run_talknetasd,
+                            talknet_instance,
+                            file,
+                            future["start"] / fps,
+                            future["end"] / fps,
+                            face_detection_outputs
+                        )
+                        continue
 
     print("------------------")
     print("Video Informaton")
@@ -565,8 +568,12 @@ def process(
             yield batch_frames
         
 if __name__ == "__main__":
-    TEST_URL = "https://storage.googleapis.com/sieve-prod-us-central1-public-file-upload-bucket/d979a930-f2a5-4e0d-84fe-a9b233985c4e/dba9cbf3-8374-44bc-8d9d-cc9833d3f502-input-file.mp4"
-    # change "url" to "path" if you want to test with a local file
-    file = sieve.File(url=TEST_URL)
-    for out in process(file):
+    
+    yolov8_instance = YOLOv8()
+    yolov8_instance.__setup__()
+    talknet_instance = TalkNetASD()
+    talknet_instance.__setup__()
+    # add path for test video
+    file = "test-videos/test_vid.mp4"
+    for out in process(yolov8_instance, talknet_instance, file):
         print(out)

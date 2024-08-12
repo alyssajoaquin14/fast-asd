@@ -7,3 +7,8 @@ sortedcontainers
 supervision
 vidgear[core]
 imageio[ffmpeg]
+ultralytics
+gdown
+pydantic
+dill
+python_speech_features

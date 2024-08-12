@@ -1,0 +1,43 @@
+# Configuration for Cog ⚙️
+# Reference: https://cog.run/yaml
+
+build:
+  # set to true if your model requires a GPU
+  gpu: true
+
+  system_packages:
+    - "ffmpeg"
+    - "libgl1-mesa-glx"
+    - "libglib2.0-0"
+
+  python_version: "3.9"
+
+  # a list of packages in the format <package-name>==<version>
+  python_packages:
+    - "numpy==1.23.5"
+    - "filterpy==1.4.5"
+    - "opencv-python==4.7.0.72"
+    - "scenedetect[opencv]"
+    - "gdown"
+    - "supervision"
+    - "sortedcontainers"
+    - "vidgear[core]"
+    - "imageio[ffmpeg]"
+    - "wheel"
+    - "pydantic"
+    - "dill"
+    - "python-speech-features"
+
+  run:
+    - "pip install lap==0.4.0"
+    - "pip install ultralytics"
+    - "mkdir -p /root/.models/"
+    - "wget -O /root/.models/yolov8l-face.pt https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8l-face.pt"
+    - "wget -O /root/.models/yolov8l.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8l.pt"
+    - "wget -O /root/.models/yolov8n.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8n.pt"
+    - "mkdir -p /root/.cache/models"
+    - "gdown --id 1J-PDWDAkYCdT8T2Nxn3Q_-iOHH_t-9YP -O /root/.cache/models/pretrain_TalkSet.model"
+
+
+# predict.py defines how predictions are run on your model
+predict: "predict.py:Predictor"

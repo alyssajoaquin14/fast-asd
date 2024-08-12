@@ -4,16 +4,21 @@ import torch.nn.functional as F
 
 import sys, time, numpy, os, subprocess, pandas, tqdm
 
-from loss import lossAV, lossA, lossV
-from model.talkNetModel import talkNetModel
+from talknet.loss import lossAV, lossA, lossV
+from talknet.model.talkNetModel import talkNetModel
+LOCAL_MACHINE = True
 
 class talkNet(nn.Module):
     def __init__(self, lr = 0.0001, lrDecay = 0.95, **kwargs):
-        super(talkNet, self).__init__()        
-        self.model = talkNetModel().cuda()
-        self.lossAV = lossAV().cuda()
-        self.lossA = lossA().cuda()
-        self.lossV = lossV().cuda()
+        super(talkNet, self).__init__()
+        if LOCAL_MACHINE:
+            self.device = torch.device('cpu')
+        else:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
+        self.model = talkNetModel().to(self.device)
+        self.lossAV = lossAV().to(self.device)
+        self.lossA = lossA().to(self.device)
+        self.lossV = lossV().to(self.device)
         self.optim = torch.optim.Adam(self.parameters(), lr = lr)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optim, step_size = 1, gamma=lrDecay)
         print(time.strftime("%m-%d %H:%M:%S") + " Model para number = %.2f"%(sum(param.numel() for param in self.model.parameters()) / 1024 / 1024))
@@ -25,13 +30,13 @@ class talkNet(nn.Module):
         lr = self.optim.param_groups[0]['lr']        
         for num, (audioFeature, visualFeature, labels) in enumerate(loader, start=1):
             self.zero_grad()
-            audioEmbed = self.model.forward_audio_frontend(audioFeature[0].cuda()) # feedForward
-            visualEmbed = self.model.forward_visual_frontend(visualFeature[0].cuda())
+            audioEmbed = self.model.forward_audio_frontend(audioFeature[0].to(self.device)) # feedForward
+            visualEmbed = self.model.forward_visual_frontend(visualFeature[0].to(self.device))
             audioEmbed, visualEmbed = self.model.forward_cross_attention(audioEmbed, visualEmbed)
             outsAV= self.model.forward_audio_visual_backend(audioEmbed, visualEmbed)  
             outsA = self.model.forward_audio_backend(audioEmbed)
             outsV = self.model.forward_visual_backend(visualEmbed)
-            labels = labels[0].reshape((-1)).cuda() # Loss
+            labels = labels[0].reshape((-1)).to(self.device) # Loss
             nlossAV, _, _, prec = self.lossAV.forward(outsAV, labels)
             nlossA = self.lossA.forward(outsA, labels)
             nlossV = self.lossV.forward(outsV, labels)
@@ -53,11 +58,11 @@ class talkNet(nn.Module):
         predScores = []
         for audioFeature, visualFeature, labels in tqdm.tqdm(loader):
             with torch.no_grad():                
-                audioEmbed  = self.model.forward_audio_frontend(audioFeature[0].cuda())
-                visualEmbed = self.model.forward_visual_frontend(visualFeature[0].cuda())
+                audioEmbed = self.model.forward_audio_frontend(audioFeature[0].to(self.device))
+                visualEmbed = self.model.forward_visual_frontend(visualFeature[0].to(self.device))
                 audioEmbed, visualEmbed = self.model.forward_cross_attention(audioEmbed, visualEmbed)
                 outsAV= self.model.forward_audio_visual_backend(audioEmbed, visualEmbed)  
-                labels = labels[0].reshape((-1)).cuda()             
+                labels = labels[0].reshape((-1)).to(self.device)           
                 _, predScore, _, _ = self.lossAV.forward(outsAV, labels)    
                 predScore = predScore[:,1].detach().cpu().numpy()
                 predScores.extend(predScore)
@@ -80,7 +85,7 @@ class talkNet(nn.Module):
 
     def loadParameters(self, path):
         selfState = self.state_dict()
-        loadedState = torch.load(path)
+        loadedState = torch.load(path, map_location=self.device)
         for name, param in loadedState.items():
             origName = name;
             if name not in selfState:
