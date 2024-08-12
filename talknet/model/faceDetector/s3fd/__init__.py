@@ -8,11 +8,12 @@ from .box_utils import nms_
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 PATH_WEIGHT = os.path.join(script_dir, 'sfd_face.pth')
+LOCAL_MACHINE = True
+device = torch.device('cpu') if LOCAL_MACHINE else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 if os.path.isfile(PATH_WEIGHT) == False:
     cmd = "wget -O %s https://storage.googleapis.com/mango-public-models/sfd_face.pth"%(PATH_WEIGHT)
     subprocess.call(cmd, shell=True, stdout=None)
 img_mean = np.array([104., 117., 123.])[:, np.newaxis, np.newaxis].astype('float32')
-device = torch.device('cuda' if not os.getenv('LOCAL_MACHINE') == 'true' and torch.cuda.is_available() else 'cpu')
 
 class S3FD():
 

@@ -1,53 +1,21 @@
-'''
-import sieve
 
-metadata = sieve.Metadata(
-    description="YOLOv8 real-time object detection model with COCO, face, and world variants.",
-    code_url="https://github.com/sieve-community/examples/blob/main/object_detection/yolov8",
-    tags=["Image", "Object", "Detection"],
-    image=sieve.Image(
-        url="https://www.freecodecamp.org/news/content/images/2023/04/compvision_tasks.png"
-    ),
-    readme=open("README.md", "r").read(),
-)
-
-
-@sieve.Model(
-    name="yolov8",
-    gpu=sieve.gpu.T4(split=2),
-    python_packages=["ultralytics", "torch==1.13.1", "torchvision==0.14.1"],
-    cuda_version="11.7.1",
-    system_packages=["libgl1-mesa-glx", "libglib2.0-0", "ffmpeg"],
-    python_version="3.10",
-    metadata=metadata,
-    run_commands=[
-        "mkdir -p /root/.models/",
-        "wget -O /root/.models/yolov8l-face.pt https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8l-face.pt",
-        "wget -O /root/.models/yolov8n-face.pt https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8n-face.pt",
-        "pip install decord",
-        "pip install 'imageio[ffmpeg]'",
-        "pip install git+https://github.com/ultralytics/ultralytics.git@29dc1a3987eb8aa2d55d067daffdd26d14929020",
-        "pip install av==9.2.0",
-        "wget -O /root/.models/yolov8l.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8l.pt",
-        "wget -O /root/.models/yolov8n.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8n.pt",
-        "wget -O /root/.models/yolov8l-worldv2.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8l-worldv2.pt",
-        "wget -O /root/.models/yolov8s-worldv2.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8s-worldv2.pt",
-        "pip install dill"
-    ]
-)
-'''
 class YOLOv8:
     def __setup__(self):
         from ultralytics import YOLO
         import os
 
-        model_dir = os.path.expanduser('~/models/')
-        os.makedirs(model_dir, exist_ok=True)
-
-        self.model = YOLO(os.path.join(model_dir, 'yolov8l.pt'))
-        self.fast_model = YOLO(os.path.join(model_dir, 'yolov8n.pt'))
-        self.face_model = YOLO(os.path.join(model_dir, "yolov8l-face.pt"))
-        self.face_fast_model = self.face_model
+        LOCAL_MACHINE = True
+        if LOCAL_MACHINE:
+            model_dir = os.path.expanduser('~/models/')
+            self.model = YOLO(os.path.join(model_dir, 'yolov8l.pt'))
+            self.fast_model = YOLO(os.path.join(model_dir, 'yolov8n.pt'))
+            self.face_model = YOLO(os.path.join(model_dir, "yolov8l-face.pt"))
+            self.face_fast_model = self.face_model
+        else:
+            self.model = YOLO('/root/.models/yolov8l.pt')
+            self.fast_model = YOLO('/root/.models/yolov8n.pt')
+            self.face_model = YOLO("/root/.models/yolov8l-face.pt")
+            self.face_fast_model = self.face_model
 
     def __predict__(
             self,

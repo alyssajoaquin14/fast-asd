@@ -15,11 +15,13 @@ from talknet.model.faceDetector.s3fd import S3FD
 from talknet.talkNet import talkNet
 
 warnings.filterwarnings("ignore")
-device = torch.device('cuda' if not os.getenv('LOCAL_MACHINE') == 'true' and torch.cuda.is_available() else 'cpu')
-if os.getenv('LOCAL_MACHINE') == 'true':
-    pretrained_model_path = os.path.expanduser("~/models/pretrain_TalkSet.model")
+LOCAL_MACHINE = True
+device = torch.device('cuda' if not LOCAL_MACHINE and torch.cuda.is_available() else 'cpu')
+if LOCAL_MACHINE:
+	model_dir = os.path.expanduser('~/models/')
+	pretrained_model_path = os.path.join(model_dir, 'pretrain_TalkSet.model')
 else:
-    pretrained_model_path = "/root/.cache/models/pretrain_TalkSet.model"
+	pretrained_model_path = "/root/.cache/models/pretrain_TalkSet.model"
 save_path = "save/"
 data_loader_thread = 10
 face_detection_scale = 0.25
@@ -68,7 +70,7 @@ def scene_detect(video_path, save = False, start_frame = 0, end_frame = None):
 			# sys.stderr.write('%s - scenes detected %d\n'%(video_path, len(sceneList)))
 	return sceneList
 
-def initialize_detector():
+def initialize_detector(device=device):
 	# Initialize the face detector
 	DET = S3FD(device=device)
 	return DET

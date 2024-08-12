@@ -6,11 +6,15 @@ import sys, time, numpy, os, subprocess, pandas, tqdm
 
 from talknet.loss import lossAV, lossA, lossV
 from talknet.model.talkNetModel import talkNetModel
+LOCAL_MACHINE = True
 
 class talkNet(nn.Module):
     def __init__(self, lr = 0.0001, lrDecay = 0.95, **kwargs):
         super(talkNet, self).__init__()
-        self.device = torch.device('cuda' if not os.getenv('LOCAL_MACHINE') == 'true' and torch.cuda.is_available() else 'cpu')        
+        if LOCAL_MACHINE:
+            self.device = torch.device('cpu')
+        else:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
         self.model = talkNetModel().to(self.device)
         self.lossAV = lossAV().to(self.device)
         self.lossA = lossA().to(self.device)

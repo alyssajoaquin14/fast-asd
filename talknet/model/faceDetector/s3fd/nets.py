@@ -5,8 +5,8 @@ import torch.nn.init as init
 from .box_utils import Detect, PriorBox
 import os
 
-device = torch.device('cuda' if not os.getenv('LOCAL_MACHINE') == 'true' and torch.cuda.is_available() else 'cpu')
-
+LOCAL_MACHINE = True
+device = torch.device('cpu') if LOCAL_MACHINE else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 class L2Norm(nn.Module):
 
     def __init__(self, n_channels, scale):

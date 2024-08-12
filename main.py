@@ -7,12 +7,8 @@ from talknet.main import TalkNetASD
 from yolov8_model import YOLOv8
 
 SPEAKER_DETECTION_IN_MEMORY_THRESHOLD = 3000
-yolov8_instance = YOLOv8()
-yolov8_instance.__setup__()
-talknet_instance = TalkNetASD()
-talknet_instance.__setup__()
 
-def run_yolov8(file, confidence_threshold, start_frame, end_frame, models, fps, max_num_boxes):
+def run_yolov8(yolov8_instance, file, confidence_threshold, start_frame, end_frame, models, fps, max_num_boxes):
     return yolov8_instance.__predict__(
         file=file,
         confidence_threshold=confidence_threshold,
@@ -23,11 +19,7 @@ def run_yolov8(file, confidence_threshold, start_frame, end_frame, models, fps, 
         max_num_boxes=max_num_boxes
     )
 
-def run_talknetasd(file, start_time, end_time, face_boxes):
-    # Implement your TalkNetASD detection logic here
-    # Return the speaker detection results
-
-    # Run the prediction using TalkNetASD
+def run_talknetasd(talknet_instance, file, start_time, end_time, face_boxes):
     detection_results = talknet_instance.__predict__(
         video=file,
         start_time=start_time,
@@ -39,7 +31,7 @@ def run_talknetasd(file, start_time, end_time, face_boxes):
 
     return detection_results
 
-def push_video_segments_to_object_detection(video_segment, file, frame_interval=600, models="yolov8l, yolov8l-face", processing_fps=2):
+def push_video_segments_to_object_detection(yolov8_instance, video_segment, file, frame_interval=600, models="yolov8l, yolov8l-face", processing_fps=2):
     # push the video segments to object detection for every frame_interval frames
     total_num_frames = video_segment.end_frame if video_segment.end_frame else int(video_segment.end * video_segment.fps())
     start = video_segment.start_frame if video_segment.start_frame else int(video_segment.start * video_segment.fps())
@@ -51,6 +43,7 @@ def push_video_segments_to_object_detection(video_segment, file, frame_interval=
             
             future = executor.submit(
                 run_yolov8,
+                yolov8_instance,
                 file,
                 0.25,
                 start_frame,
@@ -89,41 +82,10 @@ def get_active_speakers(speaker_frames, alpha=0.5, score_threshold=0):
                 active_speakers[frame_number].append(Box(class_id=-1, confidence=1.0, x1=box['x1'], y1=box['y1'], x2=box['x2'], y2=box['y2'], id=box_id, metadata={'raw_score': smoothed_scores[box_id]}))
 
     return active_speakers
-'''
-metadata = sieve.Metadata(
-    title="Detect Active Speakers",
-    description="State-of-the-art active speaker detection based on new, efficent face and speaker detection models.",
-    tags=["Video", "Showcase"],
-    code_url="https://github.com/sieve-community/fast-asd",
-    image=sieve.Image(url="https://storage.googleapis.com/sieve-public-data/asd/speaker-icon.webp"),
-    readme=open("README.md", "r").read(),
-)
 
-@sieve.function(
-    name="active_speaker_detection",
-    python_version="3.9",
-    metadata=metadata,
-    python_packages=[
-        "numpy==1.23.5",
-        "filterpy==1.4.5",
-        "opencv-python==4.7.0.72",
-        "scenedetect[opencv]",
-    ],
-    system_packages=[
-        "ffmpeg",
-        "libgl1-mesa-glx",
-        "libglib2.0-0"
-    ],
-    run_commands=[
-        "pip install lap==0.4.0",
-        "pip install sortedcontainers",
-        "pip install supervision",
-        "pip install 'vidgear[core]'",
-        "pip install 'imageio[ffmpeg]'"
-    ],
-)
-'''
 def process(
+    yolov8_instance, 
+    talknet_instance,
     file: str,
     speed_boost: bool = False,
     max_num_faces: int = 5,
@@ -192,7 +154,7 @@ def process(
     # Define a wrapper function to call push_video_segments_to_object_detection and put the result in the Queue
     def object_detection_wrapper(original_video, file, result_queue, frame_interval):
         print("Pushing video to object detection...")
-        result = push_video_segments_to_object_detection(original_video, file, frame_interval=frame_interval, models=models, processing_fps=processing_fps)
+        result = push_video_segments_to_object_detection(yolov8_instance, original_video, file, frame_interval=frame_interval, models=models, processing_fps=processing_fps)
         result_queue.put(result)
         print("Done pushing video to object detection")
     
@@ -291,6 +253,7 @@ def process(
                         print(f"WARNING: Found failed object detection (frame {future['start']}-{future['end']}), retrying...")
                         object_detection_futures[j]["future"] = executor.submit(
                             run_yolov8,
+                            yolov8_instance,
                             file,
                             0.25,
                             future["start"],
@@ -315,6 +278,7 @@ def process(
                             del object_detection_futures[i]["result"]
                         object_detection_futures[i]["future"] = executor.submit(
                             run_yolov8,
+                            yolov8_instance,
                             file,
                             0.25,
                             object_detection_futures[i]["start"],
@@ -339,6 +303,7 @@ def process(
                         face_detection_outputs = convert_face_detection_outputs_to_string(res)
                         speaker_detection_futures[i]["future"] = executor.submit(
                             run_talknetasd,
+                            talknet_instance,
                             file,
                             future["start"] / fps,
                             future["end"] / fps,
@@ -367,6 +332,7 @@ def process(
                         with ThreadPoolExecutor(max_workers=1) as executor:
                             speaker_detection_futures[i]["future"] = executor.submit(
                                 run_talknetasd,
+                                talknet_instance,
                                 file,
                                 future["start"] / fps,
                                 future["end"] / fps,
@@ -388,6 +354,7 @@ def process(
                     face_detection_outputs = convert_face_detection_outputs_to_string(res)
                     speaker_detection_futures[i]["future"] = executor.submit(
                         run_talknetasd,
+                        talknet_instance,
                         file,
                         future["start"] / fps,
                         future["end"] / fps,
@@ -405,6 +372,7 @@ def process(
                         face_detection_outputs = convert_face_detection_outputs_to_string(res)
                         speaker_detection_futures[i]["future"] = executor.submit(
                             run_talknetasd,
+                            talknet_instance,
                             file,
                             future["start"] / fps,
                             future["end"] / fps,
@@ -421,6 +389,7 @@ def process(
                         print(f"WARNING: Found failed object detection (frame {future['start']}-{future['end']}), retrying...")
                         object_detection_futures[i]["future"] = executor.submit(
                             run_yolov8,
+                            yolov8_instance,
                             file,
                             0.25,
                             future["start"],
@@ -443,6 +412,7 @@ def process(
                         face_detection_outputs = convert_face_detection_outputs_to_string(res)
                         speaker_detection_futures[i]["future"] = executor.submit(
                             run_talknetasd,
+                            talknet_instance,
                             file,
                             future["start"] / fps,
                             future["end"] / fps,
@@ -598,8 +568,12 @@ def process(
             yield batch_frames
         
 if __name__ == "__main__":
-    TEST_URL = "https://storage.googleapis.com/sieve-prod-us-central1-public-file-upload-bucket/d979a930-f2a5-4e0d-84fe-a9b233985c4e/dba9cbf3-8374-44bc-8d9d-cc9833d3f502-input-file.mp4"
-    # change "url" to "path" if you want to test with a local file
-    file = "test-videos/test_30s.mp4"
-    for out in process(file):
+    
+    yolov8_instance = YOLOv8()
+    yolov8_instance.__setup__()
+    talknet_instance = TalkNetASD()
+    talknet_instance.__setup__()
+    # add path for test video
+    file = "test-videos/test_vid.mp4"
+    for out in process(yolov8_instance, talknet_instance, file):
         print(out)
