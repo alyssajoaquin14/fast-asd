@@ -468,7 +468,7 @@ def process(
                         y2=y2,
                         confidence=1.0,
                         class_id=0,
-                        metadata={'raw_score': box['raw_score']},
+                        metadata={'raw_score': box['raw_score'], 'track_id': box['track_id']},
                     ))
                 frames.append(Frame(
                     boxes=boxes,
@@ -533,12 +533,13 @@ def process(
             out_boxes = []
             for box in frame.boxes:
                 out_boxes.append({
-                    "x1": int(box.x1),
-                    "y1": int(box.y1),
-                    "x2": int(box.x2),
-                    "y2": int(box.y2),
-                    "speaking_score": box.metadata["raw_score"],
-                    "active": box.metadata["raw_score"] > 0
+                    "track_id": box.metadata["track_id"],
+                    "raw_score": box.metadata["raw_score"],
+                    "x1": box.x1,
+                    "y1": box.y1,
+                    "x2": box.x2,
+                    "y2": box.y2,
+                    "speaking": box.metadata["raw_score"] > 0,
                 })
 
             # sort by box size
@@ -549,13 +550,13 @@ def process(
             if return_scene_data:
                 batch_frames.append({
                     "frame_number": frame.number,
-                    "faces": out_boxes,
+                    "boxes": out_boxes,
                     "related_scene": scene_out,
                 })
             else:
                 batch_frames.append({
                     "frame_number": frame.number,
-                    "faces": out_boxes,
+                    "boxes": out_boxes,
                 })
             if len(batch_frames) == 100:
                 yield batch_frames
@@ -574,6 +575,6 @@ if __name__ == "__main__":
     talknet_instance = TalkNetASD()
     talknet_instance.__setup__()
     # add path for test video
-    file = "test-videos/test_vid.mp4"
+    file = "test_vid.mp4"
     for out in process(yolov8_instance, talknet_instance, file):
         print(out)

@@ -32,11 +32,9 @@ build:
     - "pip install lap==0.4.0"
     - "pip install ultralytics"
     - "mkdir -p /root/.models/"
-    - "wget -O /root/.models/yolov8l-face.pt https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8l-face.pt"
-    - "wget -O /root/.models/yolov8l.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8l.pt"
-    - "wget -O /root/.models/yolov8n.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8n.pt"
     - "mkdir -p /root/.cache/models"
     - "gdown --id 1J-PDWDAkYCdT8T2Nxn3Q_-iOHH_t-9YP -O /root/.cache/models/pretrain_TalkSet.model"
+    - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.8.1/pget_Darwin_x86_64" && chmod +x /usr/local/bin/pget
 
 
 # predict.py defines how predictions are run on your model

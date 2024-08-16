@@ -42,7 +42,7 @@ class TalkNetASD:
 
 if __name__ == "__main__":
     TEST_URL = "https://storage.googleapis.com/sieve-prod-us-central1-public-file-upload-bucket/d979a930-f2a5-4e0d-84fe-a9b233985c4e/dba9cbf3-8374-44bc-8d9d-cc9833d3f502-input-file.mp4"
-    test_vid = "test_vid1.mp4"
+    test_vid = "test_r2.mp4"
     model = TalkNetASD()
     model.__setup__()  # Make sure to setup the model
     # change "url" to "path" if you want to test with a local file
