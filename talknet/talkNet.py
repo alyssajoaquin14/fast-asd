@@ -6,7 +6,7 @@ import sys, time, numpy, os, subprocess, pandas, tqdm
 
 from talknet.loss import lossAV, lossA, lossV
 from talknet.model.talkNetModel import talkNetModel
-LOCAL_MACHINE = True
+LOCAL_MACHINE = False
 
 class talkNet(nn.Module):
     def __init__(self, lr = 0.0001, lrDecay = 0.95, **kwargs):

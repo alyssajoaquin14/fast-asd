@@ -4,7 +4,7 @@ class YOLOv8:
         from ultralytics import YOLO
         import os
 
-        LOCAL_MACHINE = True
+        LOCAL_MACHINE = False
         if LOCAL_MACHINE:
             model_dir = os.path.expanduser('~/models/')
             self.model = YOLO(os.path.join(model_dir, 'yolov8l.pt'))

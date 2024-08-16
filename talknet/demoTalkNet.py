@@ -15,7 +15,7 @@ from talknet.model.faceDetector.s3fd import S3FD
 from talknet.talkNet import talkNet
 
 warnings.filterwarnings("ignore")
-LOCAL_MACHINE = True
+LOCAL_MACHINE = False
 device = torch.device('cuda' if not LOCAL_MACHINE and torch.cuda.is_available() else 'cpu')
 if LOCAL_MACHINE:
 	model_dir = os.path.expanduser('~/models/')
